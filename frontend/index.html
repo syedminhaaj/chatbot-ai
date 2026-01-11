@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Anjali Chat</title>
+  <style>
+    body { font-family: Arial; background:#111; color:#fff; padding:20px; }
+    #chat { max-width:600px; margin:auto; }
+    .msg { margin:10px 0; }
+    .user { color:#4da6ff; }
+    .bot { color:#ff66a3; }
+    input { width:80%; padding:10px; }
+    button { padding:10px; }
+  </style>
+</head>
+<body>
+
+<div id="chat">
+  <h2>Chat with Anjali 💔</h2>
+  <div id="messages"></div>
+
+  <input id="input" placeholder="Type message..." />
+  <button onclick="send()">Send</button>
+</div>
+
+<script>
+    
+const API_URL = "https://crispy-zebra-j4w56j77wvwcq7-3000.app.github.dev/chat";
+const history = [];
+
+function add(text, cls) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.textContent = text;
+  document.getElementById("messages").appendChild(div);
+}
+
+async function send() {
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  add("You: " + text, "user");
+  input.value = "";
+
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: text,
+      history: history
+    })
+  });
+
+  const data = await res.json();
+  add("Anjali: " + data.reply, "bot");
+
+  history.push({ role: "user", content: text });
+  history.push({ role: "assistant", content: data.reply });
+
+  if (history.length > 8) history.splice(0, history.length - 8);
+}
+</script>
+
+</body>
+</html>
