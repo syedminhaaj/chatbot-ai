@@ -4,6 +4,8 @@ import Groq from "groq-sdk";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import { createPendingLesson } from "./googleCalendar.js";
+import { extractBookingDetails } from "./ai/bookingExtractor.js";
 
 function loadDrivingSchoolData() {
   const dataDir = path.join(process.cwd(), "data");
@@ -61,8 +63,33 @@ Tone:
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
+    const text = message.toLowerCase();
+    const booking = await extractBookingDetails(message);
 
-    if (!message) {
+    // 🔹 HANDLE BOOKING INTENT FIRST
+    if (booking.intent === "booking") {
+      if (!booking.instructor) {
+        return res.json({ reply: "Which instructor would you like?" });
+      }
+
+      if (!booking.date) {
+        return res.json({ reply: "Please tell me the preferred date." });
+      }
+
+      if (!booking.time) {
+        return res.json({ reply: "Please tell me the preferred time." });
+      }
+
+      return res.json({
+        reply:
+          `I found this booking:\n` +
+          `Instructor: ${booking.instructor}\n` +
+          `Date: ${booking.date}\n` +
+          `Time: ${booking.time}\n\n` +
+          `Please confirm (Yes/No).`,
+      });
+    }
+    if (!text) {
       return res.json({
         reply: "Please ask a driving-related question.",
       });
@@ -77,6 +104,56 @@ app.post("/chat", async (req, res) => {
       });
     }
 
+    if (
+      text.includes("book") ||
+      text.includes("booking") ||
+      text.includes("schedule") ||
+      text.includes("appointment")
+    ) {
+      return res.json({
+        reply:
+          "Sure 😊 What would you like to do?\n\n" +
+          "1️⃣ See available instructors\n" +
+          "2️⃣ Check available time slots\n" +
+          "3️⃣ Book a lesson\n\n" +
+          "Please reply with 1, 2, or 3.",
+      });
+    }
+
+    // 🔹 INSTRUCTOR LIST
+    if (
+      text === "1" ||
+      text.includes("instructor") ||
+      text.includes("teachers")
+    ) {
+      const instructors = await getInstructors();
+      const active = instructors.filter((i) => i.active);
+
+      if (active.length === 0) {
+        return res.json({
+          reply: "No instructors are available at the moment.",
+        });
+      }
+
+      const names = active.map((i) => `• ${i.name}`).join("\n");
+
+      return res.json({
+        reply: `Our available instructors are:\n${names}`,
+      });
+    }
+
+    // 🔹 BOOKING OPTION SELECTED
+    if (text === "3") {
+      return res.json({
+        reply:
+          "Great 👍 Please tell me:\n" +
+          "• Instructor name\n" +
+          "• Preferred date (YYYY-MM-DD)\n" +
+          "• Preferred time\n\n" +
+          "Example:\nJohn on 2026-01-20 at 11:00 AM",
+      });
+    }
+
     const messages = [
       {
         role: "system",
@@ -88,7 +165,7 @@ app.post("/chat", async (req, res) => {
       },
       {
         role: "user",
-        content: message,
+        content: text,
       },
     ];
 
@@ -106,6 +183,47 @@ app.post("/chat", async (req, res) => {
     console.error("❌ Chat error:", err);
     res.status(500).json({
       reply: "Something went wrong.",
+    });
+  }
+});
+
+import { getInstructors } from "./googleSheets.js";
+
+app.get("/test-instructors", async (req, res) => {
+  const data = await getInstructors();
+  res.json(data);
+});
+
+app.post("/book-lesson", async (req, res) => {
+  try {
+    const {
+      instructorEmail,
+      date,
+      startTime,
+      endTime,
+      studentName,
+      studentPhone,
+    } = req.body;
+
+    await createPendingLesson({
+      instructorEmail,
+      date,
+      startTime,
+      endTime,
+      studentName,
+      studentPhone,
+    });
+
+    res.json({
+      success: true,
+      message:
+        "Your booking request has been sent to the instructor for approval.",
+    });
+  } catch (err) {
+    console.error("Booking error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Could not create booking.",
     });
   }
 });
